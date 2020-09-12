@@ -41,6 +41,28 @@ parser.add_argument(
     action='store_true',
     help='Flag to disable timestamps in timelapse output video.',
 )
+parser.add_argument(
+    '-r',
+    '--recursive',
+    required=False,
+    default=False,
+    action='store_true',
+    help='Recursively looks through sub-directories (defined by -p) for photos.',
+)
+parser.add_argument(
+    '-d',
+    '--delay-time',
+    type=int,
+    required=False,
+    help='Display the final frame of the timelapse for a set number of seconds.',
+)
+parser.add_argument(
+    '-t',
+    '--total-time',
+    type=int,
+    required=False,
+    help='Set the total length of the timelapse (not including -d) to a set number of seconds.',
+)
 
 args = parser.parse_args()
 #print('[DEBUG]:', args)
@@ -104,15 +126,28 @@ def WriteEntry(filename, duration):
         vidtime += duration
 
 pathname = args.pathname
-if pathname and pathname[len(pathname)-1] != '/':
-    pathname += '/*.jpg'
+if not args.recursive:
+    if pathname and pathname[len(pathname)-1] != '/':
+        pathname += '/*.jpg'
+    else:
+        pathname += "*.jpg"
+    images = glob.glob(pathname)
 else:
-    pathname += "*.jpg"
+    if pathname and pathname[len(pathname)-1] != '/':
+        pathname += '/**/*.jpg'
+    else:
+        pathname += '**/*.jpg'
+    images = glob.glob(pathname, recursive=True)
 
-images = glob.glob(pathname)
 print ("Number of images:",len(images))
 images = sorted(images)
 imglist = open("imglist.txt","w")
+
+if args.total_time and len(images) > 0:
+    framerate = len(images) / args.total_time         # output frame rate.
+    timeunit = 1/framerate
+    bitrate = framerate*160 # Vary bitrate with frame rate.
+    print ( "Modified framerate (dureation specified): ",framerate )
 
 prevsecond = 0
 prevname = ""
@@ -153,8 +188,16 @@ imglist.close()
 if tssubs is not None:
     tssubs.close()
 
-subtitles = '' if args.no_timestamp else '-vf subtitles=tssubs.ass'
-cmd = "ffmpeg -f concat -safe 0 -i imglist.txt "+subtitles+" -r "+str(framerate)+" -b:v "+str(bitrate)+"K "+outname
+filters = '' if args.no_timestamp else 'subtitles=tssubs.ass'
+if args.no_timestamp:
+    filters += '' if not args.delay_time else 'tpad=stop_mode=clone:stop_duration='+str(args.delay_time)
+else:
+    filters += '' if not args.delay_time else ',tpad=stop_mode=clone:stop_duration='+str(args.delay_time)
+
+if len(filters) > 0:
+    filters = '-vf "'+filters+'"'
+
+cmd = "ffmpeg -f concat -safe 0 -i imglist.txt "+filters+" -r "+str(framerate)+" -b:v "+str(bitrate)+"K "+outname
 #print('[DEBUG]:', cmd)
 os.system(cmd)
 
